@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' https://raw.githubusercontent.com; img-src https:; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#0b0e16">
+<title>Cog</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0e16;color:#8a93a8;font:15px system-ui,sans-serif}
+  body{display:grid;place-items:center}
+  main{text-align:center;max-width:320px;padding:24px}
+  .orb{width:72px;height:72px;margin:0 auto 18px;border-radius:50%;
+       background:radial-gradient(circle at 40% 38%,#e4efff,#5b8cff 55%,#2b4fa8);animation:b 2.4s ease-in-out infinite}
+  .off .orb{background:radial-gradient(circle at 40% 38%,#3a4256,#252b3a 60%,#171b26);animation:none}
+  @keyframes b{50%{transform:scale(1.07);opacity:.85}}
+  button{margin-top:16px;background:#1b2338;color:#cfd6e6;border:1px solid #2a3452;border-radius:10px;padding:8px 16px;font:inherit}
+  small{display:block;margin-top:14px;color:#5d6882;font-size:12px;line-height:1.4}
+</style></head>
+<body><main id="m"><div class="orb"></div><div id="t">Finding the stage…</div>
+<div id="x" hidden><button id="r" type="button">Try again</button>
+<small>The address can take a few minutes to update after the stage restarts. This page keeps trying.</small></div></main>
+<script>
+// Front door for the stage (apps/stage/front-door, published to myrgic/stage by apps/stage/front_door.py).
+// myrgic.com is static hosting, so this is a redirect, not a proxy: read where the stage lives right now
+// (origin.json), then send the browser there with the path from the URL FRAGMENT.
+// The key lives only in the fragment: a browser never sends it to GitHub, this page never stores, logs or posts it,
+// and the redirect puts it in the PATH of the stage's own address, exactly as a direct link always did.
+(function () {
+  "use strict";
+  var ORIGIN_OK = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.(trycloudflare\.com|myrgic\.com)$/;
+  var PATH_OK = /^\/(?:(?:h|r|k|pair)\/[A-Za-z0-9_-]{6,}\/[A-Za-z0-9_\-.\/?=&%~+]*|start)$/;
+  var SOURCES = ["origin.json", "https://raw.githubusercontent.com/myrgic/stage/main/origin.json"];
+  var path = decodeURIComponent((location.hash || "").slice(1)) || "/start";
+  var t = document.getElementById("t"), x = document.getElementById("x"), m = document.getElementById("m");
+  var tries = 0, timer = null, busy = false;
+
+  function say(s, off) { t.textContent = s; m.classList.toggle("off", !!off); }
+  function bad() { say("That link doesn't look right.", true); x.hidden = true; }
+  if (!PATH_OK.test(path) || path.indexOf("//") >= 0 || path.indexOf("..") >= 0) return bad();
+
+  // newest of the two sources wins (raw.githubusercontent updates within seconds of a push, Pages within minutes)
+  function newest() {
+    var q = "?t=" + Date.now();
+    return Promise.all(SOURCES.map(function (u) {
+      return fetch(u + q, { cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer" })
+        .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+    })).then(function (all) {
+      var best = null;
+      all.forEach(function (j) {
+        if (j && typeof j.origin === "string" && ORIGIN_OK.test(j.origin) && (!best || (j.ts || 0) > (best.ts || 0))) best = j;
+      });
+      return best;
+    });
+  }
+  // up = the stage's own icon loads (an image load fails on a 5xx and on a dead tunnel, unlike an opaque fetch)
+  function up(origin) {
+    return new Promise(function (ok) {
+      var i = new Image(), done = false;
+      function end(v) { if (!done) { done = true; ok(v); } }
+      i.onload = function () { end(true); }; i.onerror = function () { end(false); };
+      setTimeout(function () { end(false); }, 7000);
+      i.referrerPolicy = "no-referrer"; i.src = origin + "/app-icons/orb-192.png?t=" + Date.now();
+    });
+  }
+  function go() {
+    if (busy) return; busy = true; tries++;
+    newest().then(function (j) {
+      if (!j) return false;
+      return up(j.origin).then(function (ok) { if (ok) { location.replace(j.origin + path); return true; } return false; });
+    }).then(function (done) {
+      busy = false;
+      if (done) return;
+      say("The stage is offline, or its address is still updating.", true); x.hidden = false;
+      clearTimeout(timer); timer = setTimeout(go, Math.min(15000 + tries * 5000, 60000));
+    });
+  }
+  document.getElementById("r").onclick = function () { clearTimeout(timer); say("Finding the stage…"); x.hidden = true; go(); };
+  go();
+})();
+</script></body></html>
